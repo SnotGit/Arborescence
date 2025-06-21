@@ -1,24 +1,38 @@
-import React, { useState } from 'react';
-import { Folder, FolderOpen, File, Plus, Edit3, FolderPlus, FilePlus } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Folder, FolderOpen, File, FolderPlus, FilePlus } from 'lucide-react';
 
 const FileTreeBuilder = () => {
-  const [tree, setTree] = useState({
-    id: 'root',
-    name: 'mon-projet',
-    type: 'folder',
-    children: [
-      { id: 'index', name: 'index.html', type: 'html' },
-      { id: 'main', name: 'main.css', type: 'css' }
-    ]
+  // 2. Modifier les useState pour charger depuis localStorage
+  const [tree, setTree] = useState(() => {
+    const saved = localStorage.getItem('fileTree');
+    return saved ? JSON.parse(saved) : {
+      id: 'root',
+      name: 'mon-projet',
+      type: 'folder',
+      children: [
+        { id: 'index', name: 'index.html', type: 'html' },
+        { id: 'main', name: 'main.css', type: 'css' }
+      ]
+    };
+  });
+
+  const [openFolders, setOpenFolders] = useState(() => {
+    const saved = localStorage.getItem('openFolders');
+    return saved ? new Set(JSON.parse(saved)) : new Set(['root']);
   });
 
   const [editingId, setEditingId] = useState(null);
   const [editingName, setEditingName] = useState('');
-
   const [showSnackbar, setShowSnackbar] = useState(false);
-  
-  // État pour gérer les dossiers ouverts/fermés
-  const [openFolders, setOpenFolders] = useState(new Set(['root']));
+
+  // 3. Ajouter les useEffect pour sauvegarder automatiquement
+  useEffect(() => {
+    localStorage.setItem('fileTree', JSON.stringify(tree));
+  }, [tree]);
+
+  useEffect(() => {
+    localStorage.setItem('openFolders', JSON.stringify([...openFolders]));
+  }, [openFolders]);
 
   // Fonction de tri automatique : dossiers en premier, puis alphabétique
   const sortTreeRecursively = (item) => {
