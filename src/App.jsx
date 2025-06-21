@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Folder, File, Plus, Edit3, FolderPlus, FilePlus } from 'lucide-react';
+import { Folder, FolderOpen, File, Plus, Edit3, FolderPlus, FilePlus } from 'lucide-react';
 
 const FileTreeBuilder = () => {
   const [tree, setTree] = useState({
@@ -16,6 +16,9 @@ const FileTreeBuilder = () => {
   const [editingName, setEditingName] = useState('');
 
   const [showSnackbar, setShowSnackbar] = useState(false);
+  
+  // État pour gérer les dossiers ouverts/fermés
+  const [openFolders, setOpenFolders] = useState(new Set(['root']));
 
   // Fonction de tri automatique : dossiers en premier, puis alphabétique
   const sortTreeRecursively = (item) => {
@@ -328,6 +331,35 @@ const FileTreeBuilder = () => {
     const template = templates[templateKey].structure;
     // Appliquer le tri au template chargé
     setTree(sortTreeRecursively(template));
+    // Réinitialiser les dossiers ouverts : racine + tous les dossiers du template
+    const getAllFolderIds = (item) => {
+      const ids = [];
+      if (item.type === 'folder') {
+        ids.push(item.id);
+        if (item.children) {
+          item.children.forEach(child => {
+            ids.push(...getAllFolderIds(child));
+          });
+        }
+      }
+      return ids;
+    };
+    setOpenFolders(new Set(getAllFolderIds(template)));
+  };
+
+  // Fonction pour toggle un dossier (ouvert/fermé)
+  const toggleFolder = (folderId) => {
+    if (folderId === 'root') return; // La racine ne peut pas être fermée
+    
+    setOpenFolders(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(folderId)) {
+        newSet.delete(folderId);
+      } else {
+        newSet.add(folderId);
+      }
+      return newSet;
+    });
   };
 
   const generateId = () => Math.random().toString(36).substr(2, 9);
@@ -378,6 +410,11 @@ const FileTreeBuilder = () => {
       // Appliquer le tri automatique après ajout
       return sortTreeRecursively(updatedTree);
     });
+
+    // Si on ajoute un nouveau dossier, l'ouvrir automatiquement
+    if (type === 'folder') {
+      setOpenFolders(prev => new Set([...prev, newItem.id]));
+    }
   };
 
   const startEdit = (id, currentName) => {
@@ -429,6 +466,13 @@ const FileTreeBuilder = () => {
         return item;
       };
       return removeFromItem(prevTree);
+    });
+
+    // Nettoyer l'état des dossiers ouverts
+    setOpenFolders(prev => {
+      const newSet = new Set(prev);
+      newSet.delete(itemId);
+      return newSet;
     });
   };
 
@@ -525,12 +569,16 @@ const FileTreeBuilder = () => {
     return typeMap[extension] || 'file';
   };
 
-  const getIcon = (type, name = '') => {
+  const getIcon = (type, name = '', isOpen = false, onClick = null) => {
     // Pour les dossiers : icône avec couleur #96f2d7
     if (type === 'folder') {
+      const FolderIcon = isOpen ? FolderOpen : Folder;
       return (
-        <div className="relative">
-          <Folder className="w-4 h-4" style={{
+        <div 
+          className={`relative ${onClick ? 'cursor-pointer hover:scale-110 transition-transform duration-150' : ''}`}
+          onClick={onClick}
+        >
+          <FolderIcon className="w-4 h-4" style={{
             color: 'rgb(98, 235, 194)',
             filter: 'drop-shadow(0 0 0.3px rgb(98, 235, 194))'
           }} />
@@ -638,6 +686,8 @@ const FileTreeBuilder = () => {
   const TreeItem = ({ item, level = 0 }) => {
     const isEditing = editingId === item.id;
     const isFolder = item.type === 'folder';
+    const isOpen = openFolders.has(item.id);
+    const canToggle = isFolder && item.id !== 'root';
 
     return (
       <div className="select-none">
@@ -647,7 +697,12 @@ const FileTreeBuilder = () => {
         >
           {/* Icône */}
           <div className="mr-2 flex-shrink-0">
-            {getIcon(item.type, item.name)}
+            {getIcon(
+              item.type, 
+              item.name, 
+              isOpen, 
+              canToggle ? () => toggleFolder(item.id) : null
+            )}
           </div>
 
           {/* Nom */}
@@ -707,8 +762,8 @@ const FileTreeBuilder = () => {
           </div>
         </div>
 
-        {/* Enfants */}
-        {item.children && item.children.map((child) => (
+        {/* Enfants - n'afficher que si le dossier est ouvert */}
+        {item.children && isOpen && item.children.map((child) => (
           <TreeItem key={child.id} item={child} level={level + 1} />
         ))}
       </div>
