@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Folder, FolderOpen, File, FolderPlus, FilePlus } from 'lucide-react';
 
 const FileTreeBuilder = () => {
-  // 2. Modifier les useState pour charger depuis localStorage
+  // États avec localStorage
   const [tree, setTree] = useState(() => {
     const saved = localStorage.getItem('fileTree');
     return saved ? JSON.parse(saved) : {
@@ -25,7 +25,12 @@ const FileTreeBuilder = () => {
   const [editingName, setEditingName] = useState('');
   const [showSnackbar, setShowSnackbar] = useState(false);
 
-  // 3. Ajouter les useEffect pour sauvegarder automatiquement
+  // États pour le drag & drop
+  const [draggedItem, setDraggedItem] = useState(null);
+  const [dropTarget, setDropTarget] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
+
+  // useEffect pour sauvegarder automatiquement
   useEffect(() => {
     localStorage.setItem('fileTree', JSON.stringify(tree));
   }, [tree]);
@@ -49,6 +54,119 @@ const FileTreeBuilder = () => {
       return { ...item, children: sortedChildren };
     }
     return item;
+  };
+
+  // Fonctions drag & drop
+  const handleDragStart = (e, item) => {
+    if (item.id === 'root') {
+      e.preventDefault();
+      return;
+    }
+    setDraggedItem(item);
+    setIsDragging(true);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/html', item.id);
+  };
+
+  const handleDragOver = (e, targetItem) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    
+    // On peut seulement drop dans des dossiers
+    if (targetItem.type === 'folder' && 
+        targetItem.id !== draggedItem?.id && 
+        !isDescendant(draggedItem, targetItem)) {
+      setDropTarget(targetItem.id);
+    } else {
+      setDropTarget(null);
+    }
+  };
+
+  const handleDragLeave = (e) => {
+    // Ne nettoyer que si on quitte vraiment l'élément
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setDropTarget(null);
+    }
+  };
+
+  const handleDrop = (e, targetFolder) => {
+    e.preventDefault();
+    
+    if (!draggedItem || 
+        targetFolder.type !== 'folder' || 
+        targetFolder.id === draggedItem.id ||
+        isDescendant(draggedItem, targetFolder)) {
+      return;
+    }
+    
+    moveItem(draggedItem.id, targetFolder.id);
+    
+    setDraggedItem(null);
+    setDropTarget(null);
+    setIsDragging(false);
+  };
+
+  const handleDragEnd = () => {
+    setDraggedItem(null);
+    setDropTarget(null);
+    setIsDragging(false);
+  };
+
+  // Vérifier si c'est un descendant (éviter boucles infinies)
+  const isDescendant = (parent, possibleChild) => {
+    if (!parent || !possibleChild) return false;
+    if (parent.id === possibleChild.id) return true;
+    if (!parent.children) return false;
+    
+    return parent.children.some(child => isDescendant(child, possibleChild));
+  };
+
+  // Déplacer un item
+  const moveItem = (itemId, newParentId) => {
+    setTree(prevTree => {
+      // 1. Trouver et retirer l'item
+      let itemToMove = null;
+      const removeItem = (item) => {
+        if (item.children) {
+          const index = item.children.findIndex(child => child.id === itemId);
+          if (index !== -1) {
+            itemToMove = item.children[index];
+            return {
+              ...item,
+              children: item.children.filter(child => child.id !== itemId)
+            };
+          }
+          return {
+            ...item,
+            children: item.children.map(removeItem)
+          };
+        }
+        return item;
+      };
+      
+      // 2. Ajouter l'item à sa nouvelle position
+      const addItem = (item) => {
+        if (item.id === newParentId) {
+          return {
+            ...item,
+            children: [...(item.children || []), itemToMove]
+          };
+        }
+        if (item.children) {
+          return {
+            ...item,
+            children: item.children.map(addItem)
+          };
+        }
+        return item;
+      };
+      
+      const treeWithoutItem = removeItem(prevTree);
+      if (!itemToMove) return prevTree;
+      
+      const updatedTree = addItem(treeWithoutItem);
+      return sortTreeRecursively(updatedTree);
+    });
   };
 
   const templates = {
@@ -385,17 +503,6 @@ const FileTreeBuilder = () => {
     setTimeout(() => setShowSnackbar(false), 3000);
   };
 
-  const findItemById = (items, id) => {
-    if (items.id === id) return items;
-    if (items.children) {
-      for (const child of items.children) {
-        const found = findItemById(child, id);
-        if (found) return found;
-      }
-    }
-    return null;
-  };
-
   const addItem = (parentId, type) => {
     const newItem = {
       id: generateId(),
@@ -702,15 +809,31 @@ const FileTreeBuilder = () => {
     const isFolder = item.type === 'folder';
     const isOpen = openFolders.has(item.id);
     const canToggle = isFolder && item.id !== 'root';
+    const isDraggedOver = dropTarget === item.id;
 
     return (
       <div className="select-none">
         <div
-          className="flex items-center py-1 px-2 hover:bg-gray-50 rounded group transition-colors duration-150"
-          style={{ paddingLeft: `${level * 20 + 8}px` }}
+          className={`flex items-center py-1 px-2 rounded group transition-colors duration-150 ${
+            isDraggedOver 
+              ? 'bg-blue-50 border border-blue-300' 
+              : 'hover:bg-gray-50'
+          }`}
+          style={{ 
+            paddingLeft: `${level * 20 + 8}px`,
+            cursor: item.id !== 'root' ? 'grab' : 'default'
+          }}
+          draggable={item.id !== 'root'}
+          onDragStart={(e) => handleDragStart(e, item)}
+          onDragOver={(e) => isFolder ? handleDragOver(e, item) : null}
+          onDragLeave={handleDragLeave}
+          onDrop={(e) => isFolder ? handleDrop(e, item) : null}
+          onDragEnd={handleDragEnd}
         >
           {/* Icône */}
-          <div className="mr-2 flex-shrink-0">
+          <div className={`mr-2 flex-shrink-0 transition-transform duration-150 ${
+            isDraggedOver ? 'scale-125' : ''
+          }`}>
             {getIcon(
               item.type, 
               item.name, 
@@ -821,11 +944,11 @@ const FileTreeBuilder = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-2 gap-6 items-start">
         {/* Vue Interactive */}
         <div className="bg-gray-100 rounded-2xl p-6 border border-gray-300">
-          <div className="bg-white rounded-xl border border-gray-300 p-1 min-h-80 overflow-auto">
-            <div className="mt-1 ml-1">
+          <div className="bg-white rounded-xl border border-gray-300 p-1 overflow-auto">
+            <div className="mt-1 ml-1 min-h-80" style={{ paddingBottom: '10px' }}>
               <TreeItem item={tree} />
             </div>
           </div>
@@ -833,8 +956,8 @@ const FileTreeBuilder = () => {
 
         {/* Vue ASCII */}
         <div className="bg-gray-100 rounded-2xl p-6 border border-gray-300">
-          <div className="bg-gray-900 rounded-xl p-1 min-h-80 overflow-auto">
-            <pre className="text-sm font-mono whitespace-pre-wrap ml-1" style={{ color: 'rgb(98, 235, 194)', marginTop: '12px' }}>
+          <div className="bg-gray-900 rounded-xl p-1 overflow-auto">
+            <pre className="text-sm font-mono whitespace-pre-wrap ml-1 min-h-80" style={{ color: 'rgb(98, 235, 194)', marginTop: '12px', paddingBottom: '10px' }}>
               {generateTreeString(tree)}
             </pre>
           </div>
