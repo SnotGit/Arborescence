@@ -1,8 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Folder, FolderOpen, File, FolderPlus, FilePlus } from 'lucide-react';
 
 const FileTreeBuilder = () => {
-  // États avec localStorage
   const [tree, setTree] = useState(() => {
     const saved = localStorage.getItem('fileTree');
     return saved ? JSON.parse(saved) : {
@@ -25,12 +24,12 @@ const FileTreeBuilder = () => {
   const [editingName, setEditingName] = useState('');
   const [showSnackbar, setShowSnackbar] = useState(false);
 
-  // États pour le drag & drop
   const [draggedItem, setDraggedItem] = useState(null);
   const [dropTarget, setDropTarget] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
 
-  // useEffect pour sauvegarder automatiquement
+  const editInputRef = useRef(null);
+
   useEffect(() => {
     localStorage.setItem('fileTree', JSON.stringify(tree));
   }, [tree]);
@@ -39,16 +38,26 @@ const FileTreeBuilder = () => {
     localStorage.setItem('openFolders', JSON.stringify([...openFolders]));
   }, [openFolders]);
 
-  // Fonction de tri automatique : dossiers en premier, puis alphabétique
+  useEffect(() => {
+    if (editingId && editInputRef.current) {
+      editInputRef.current.focus();
+      editInputRef.current.select();
+    }
+  }, [editingId]);
+
+  useEffect(() => {
+    if (editingId && editInputRef.current) {
+      editInputRef.current.focus();
+    }
+  });
+
   const sortTreeRecursively = (item) => {
     if (item.children && item.children.length > 0) {
       const sortedChildren = item.children
-        .map(sortTreeRecursively) // Trier récursivement chaque enfant
+        .map(sortTreeRecursively)
         .sort((a, b) => {
-          // Dossiers en premier
           if (a.type === 'folder' && b.type !== 'folder') return -1;
           if (a.type !== 'folder' && b.type === 'folder') return 1;
-          // Puis tri alphabétique (insensible à la casse)
           return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
         });
       return { ...item, children: sortedChildren };
@@ -56,7 +65,6 @@ const FileTreeBuilder = () => {
     return item;
   };
 
-  // Fonctions drag & drop
   const handleDragStart = (e, item) => {
     if (item.id === 'root') {
       e.preventDefault();
@@ -72,7 +80,6 @@ const FileTreeBuilder = () => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
     
-    // On peut seulement drop dans des dossiers
     if (targetItem.type === 'folder' && 
         targetItem.id !== draggedItem?.id && 
         !isDescendant(draggedItem, targetItem)) {
@@ -83,7 +90,6 @@ const FileTreeBuilder = () => {
   };
 
   const handleDragLeave = (e) => {
-    // Ne nettoyer que si on quitte vraiment l'élément
     if (!e.currentTarget.contains(e.relatedTarget)) {
       setDropTarget(null);
     }
@@ -112,7 +118,6 @@ const FileTreeBuilder = () => {
     setIsDragging(false);
   };
 
-  // Vérifier si c'est un descendant (éviter boucles infinies)
   const isDescendant = (parent, possibleChild) => {
     if (!parent || !possibleChild) return false;
     if (parent.id === possibleChild.id) return true;
@@ -121,10 +126,8 @@ const FileTreeBuilder = () => {
     return parent.children.some(child => isDescendant(child, possibleChild));
   };
 
-  // Déplacer un item
   const moveItem = (itemId, newParentId) => {
     setTree(prevTree => {
-      // 1. Trouver et retirer l'item
       let itemToMove = null;
       const removeItem = (item) => {
         if (item.children) {
@@ -144,7 +147,6 @@ const FileTreeBuilder = () => {
         return item;
       };
       
-      // 2. Ajouter l'item à sa nouvelle position
       const addItem = (item) => {
         if (item.id === newParentId) {
           return {
@@ -461,9 +463,7 @@ const FileTreeBuilder = () => {
 
   const loadTemplate = (templateKey) => {
     const template = templates[templateKey].structure;
-    // Appliquer le tri au template chargé
     setTree(sortTreeRecursively(template));
-    // Réinitialiser les dossiers ouverts : racine + tous les dossiers du template
     const getAllFolderIds = (item) => {
       const ids = [];
       if (item.type === 'folder') {
@@ -479,9 +479,8 @@ const FileTreeBuilder = () => {
     setOpenFolders(new Set(getAllFolderIds(template)));
   };
 
-  // Fonction pour toggle un dossier (ouvert/fermé)
   const toggleFolder = (folderId) => {
-    if (folderId === 'root') return; // La racine ne peut pas être fermée
+    if (folderId === 'root') return;
     
     setOpenFolders(prev => {
       const newSet = new Set(prev);
@@ -528,14 +527,16 @@ const FileTreeBuilder = () => {
         return item;
       };
       const updatedTree = addToItem(prevTree);
-      // Appliquer le tri automatique après ajout
       return sortTreeRecursively(updatedTree);
     });
 
-    // Si on ajoute un nouveau dossier, l'ouvrir automatiquement
     if (type === 'folder') {
       setOpenFolders(prev => new Set([...prev, newItem.id]));
     }
+
+    setTimeout(() => {
+      startEdit(newItem.id, newItem.name);
+    }, 10);
   };
 
   const startEdit = (id, currentName) => {
@@ -560,7 +561,6 @@ const FileTreeBuilder = () => {
         return item;
       };
       const updatedTree = updateItem(prevTree);
-      // Appliquer le tri automatique après renommage
       return sortTreeRecursively(updatedTree);
     });
 
@@ -580,7 +580,7 @@ const FileTreeBuilder = () => {
           return {
             ...item,
             children: item.children
-              .filter(child => child.id !== itemId) // Supprime l'item ET tout son contenu
+              .filter(child => child.id !== itemId)
               .map(removeFromItem)
           };
         }
@@ -589,7 +589,6 @@ const FileTreeBuilder = () => {
       return removeFromItem(prevTree);
     });
 
-    // Nettoyer l'état des dossiers ouverts
     setOpenFolders(prev => {
       const newSet = new Set(prev);
       newSet.delete(itemId);
@@ -612,12 +611,10 @@ const FileTreeBuilder = () => {
     return result;
   };
 
-  // Fonction pour détecter le type de fichier par extension
   const getFileTypeFromName = (name) => {
     const extension = name.split('.').pop()?.toLowerCase();
 
     const typeMap = {
-      // JavaScript/TypeScript
       'js': 'javascript',
       'jsx': 'javascript',
       'ts': 'typescript',
@@ -625,7 +622,6 @@ const FileTreeBuilder = () => {
       'mjs': 'javascript',
       'cjs': 'javascript',
 
-      // Web
       'html': 'html',
       'htm': 'html',
       'css': 'css',
@@ -633,20 +629,17 @@ const FileTreeBuilder = () => {
       'sass': 'css',
       'less': 'css',
 
-      // Data
       'json': 'json',
       'xml': 'xml',
       'yaml': 'yaml',
       'yml': 'yaml',
       'toml': 'yaml',
 
-      // Documentation
       'md': 'markdown',
       'markdown': 'markdown',
       'txt': 'text',
       'rtf': 'text',
 
-      // Images
       'png': 'image',
       'jpg': 'image',
       'jpeg': 'image',
@@ -655,20 +648,16 @@ const FileTreeBuilder = () => {
       'webp': 'image',
       'ico': 'image',
 
-      // Python
       'py': 'python',
       'pyw': 'python',
       'pyc': 'python',
 
-      // PHP
       'php': 'php',
       'phtml': 'php',
 
-      // Java/C#
       'java': 'java',
       'cs': 'csharp',
 
-      // C/C++
       'c': 'c',
       'cpp': 'cpp',
       'cxx': 'cpp',
@@ -676,7 +665,6 @@ const FileTreeBuilder = () => {
       'h': 'c',
       'hpp': 'cpp',
 
-      // Other
       'vue': 'vue',
       'rb': 'ruby',
       'go': 'go',
@@ -691,7 +679,6 @@ const FileTreeBuilder = () => {
   };
 
   const getIcon = (type, name = '', isOpen = false, onClick = null) => {
-    // Pour les dossiers : icône avec couleur #96f2d7
     if (type === 'folder') {
       const FolderIcon = isOpen ? FolderOpen : Folder;
       return (
@@ -707,11 +694,9 @@ const FileTreeBuilder = () => {
       );
     }
 
-    // Pour les fichiers : détecter le type par le nom
     const fileType = getFileTypeFromName(name);
 
     const iconMap = {
-      // JavaScript/TypeScript - Jaune
       'javascript': <File className="w-4 h-4 text-yellow-500" style={{
         filter: 'drop-shadow(0 0 0.2px #eab308)'
       }} />,
@@ -719,7 +704,6 @@ const FileTreeBuilder = () => {
         filter: 'drop-shadow(0 0 0.2px #2563eb)'
       }} />,
 
-      // Web - HTML Orange, CSS Bleu
       'html': <File className="w-4 h-4 text-orange-500" style={{
         filter: 'drop-shadow(0 0 0.2px #f97316)'
       }} />,
@@ -727,7 +711,6 @@ const FileTreeBuilder = () => {
         filter: 'drop-shadow(0 0 0.2px #60a5fa)'
       }} />,
 
-      // Data - JSON Jaune
       'json': <File className="w-4 h-4 text-yellow-600" style={{
         filter: 'drop-shadow(0 0 0.2px #ca8a04)'
       }} />,
@@ -738,7 +721,6 @@ const FileTreeBuilder = () => {
         filter: 'drop-shadow(0 0 0.2px #ef4444)'
       }} />,
 
-      // Documentation - Gris
       'markdown': <File className="w-4 h-4 text-gray-700" style={{
         filter: 'drop-shadow(0 0 0.2px #374151)'
       }} />,
@@ -746,7 +728,6 @@ const FileTreeBuilder = () => {
         filter: 'drop-shadow(0 0 0.2px #6b7280)'
       }} />,
 
-      // Langages
       'python': <File className="w-4 h-4 text-green-600" style={{
         filter: 'drop-shadow(0 0 0.2px #16a34a)'
       }} />,
@@ -784,7 +765,6 @@ const FileTreeBuilder = () => {
         filter: 'drop-shadow(0 0 0.2px #1e40af)'
       }} />,
 
-      // Médias
       'image': <File className="w-4 h-4 text-purple-500" style={{
         filter: 'drop-shadow(0 0 0.2px #a855f7)'
       }} />,
@@ -795,7 +775,6 @@ const FileTreeBuilder = () => {
         filter: 'drop-shadow(0 0 0.2px #166534)'
       }} />,
 
-      // Fichier par défaut
       'file': <File className="w-4 h-4 text-gray-600" style={{
         filter: 'drop-shadow(0 0 0.2px #4b5563)'
       }} />
@@ -830,7 +809,6 @@ const FileTreeBuilder = () => {
           onDrop={(e) => isFolder ? handleDrop(e, item) : null}
           onDragEnd={handleDragEnd}
         >
-          {/* Icône */}
           <div className={`mr-2 flex-shrink-0 transition-transform duration-150 ${
             isDraggedOver ? 'scale-125' : ''
           }`}>
@@ -842,10 +820,10 @@ const FileTreeBuilder = () => {
             )}
           </div>
 
-          {/* Nom */}
           <div className="flex-1 min-w-0">
             {isEditing ? (
               <input
+                ref={editInputRef}
                 type="text"
                 value={editingName}
                 onChange={(e) => setEditingName(e.target.value)}
@@ -855,7 +833,6 @@ const FileTreeBuilder = () => {
                   if (e.key === 'Escape') cancelEdit();
                 }}
                 className="w-full px-1 py-0 text-sm border border-blue-300 rounded focus:outline-none focus:border-blue-500"
-                autoFocus
               />
             ) : (
               <span
@@ -867,7 +844,6 @@ const FileTreeBuilder = () => {
             )}
           </div>
 
-          {/* Actions */}
           <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
             {isFolder && (
               <>
@@ -899,7 +875,6 @@ const FileTreeBuilder = () => {
           </div>
         </div>
 
-        {/* Enfants - n'afficher que si le dossier est ouvert */}
         {item.children && isOpen && item.children.map((child) => (
           <TreeItem key={child.id} item={child} level={level + 1} />
         ))}
@@ -909,7 +884,6 @@ const FileTreeBuilder = () => {
 
   return (
     <div className="max-w-6xl mx-auto p-6 bg-white">
-      {/* Header unifié */}
       <div className="mb-6 p-6 bg-gray-100 rounded-2xl border border-gray-300">
         <div className="flex justify-between items-center">
           <div className="flex-1">
@@ -945,7 +919,6 @@ const FileTreeBuilder = () => {
       </div>
 
       <div className="grid grid-cols-2 gap-6 items-start">
-        {/* Vue Interactive */}
         <div className="bg-gray-100 rounded-2xl p-6 border border-gray-300">
           <div className="bg-white rounded-xl border border-gray-300 p-1 overflow-auto">
             <div className="mt-1 ml-1 min-h-80" style={{ paddingBottom: '10px' }}>
@@ -954,7 +927,6 @@ const FileTreeBuilder = () => {
           </div>
         </div>
 
-        {/* Vue ASCII */}
         <div className="bg-gray-100 rounded-2xl p-6 border border-gray-300">
           <div className="bg-gray-900 rounded-xl p-1 overflow-auto">
             <pre className="text-sm font-mono whitespace-pre-wrap ml-1 min-h-80" style={{ color: 'rgb(98, 235, 194)', marginTop: '12px', paddingBottom: '10px' }}>
@@ -964,7 +936,6 @@ const FileTreeBuilder = () => {
         </div>
       </div>
 
-      {/* Snackbar */}
       <div className={`fixed bottom-6 left-1/2 transform -translate-x-1/2 transition-all duration-300 ${showSnackbar
           ? 'opacity-100 translate-y-0'
           : 'opacity-0 translate-y-4 pointer-events-none'
